@@ -1,1 +1,109 @@
+name: Build DataPlus Viewer APK
 
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          flutter-version: '3.24.3'
+
+      - name: Create & Configure Flutter App
+        run: |
+          # 1. Flutter Project အသစ် စတင်တည်ဆောက်ခြင်း
+          flutter create --org com.dataplus --project-name dataplus_viewer app
+          cd app
+          
+          # 2. လိုအပ်သော Package များ ထည့်သွင်းခြင်း
+          flutter pub add webview_flutter url_launcher
+
+          # 3. ရေးထားသော main.dart ကို အစားထိုးထည့်သွင်းခြင်း
+          cp ../lib/main.dart lib/main.dart
+
+          # 4. Local HTTP (Cleartext) နှင့် dataplus:// scheme ခွင့်ပြုချက်များ ထည့်သွင်းခြင်း
+          python3 -c '
+          manifest = "android/app/src/main/AndroidManifest.xml"
+          with open(manifest, "r", encoding="utf-8") as f:
+              data = f.read()
+
+          # Internet ခွင့်ပြုချက်
+          if "android.permission.INTERNET" not in data:
+              data = data.replace("<manifest", "<manifest\n    <uses-permission android:name=\"android.permission.INTERNET\"/>")
+
+          # http://10.10.10.10:1000 (Cleartext) ခွင့်ပြုချက်
+          if "usesCleartextTraffic" not in data:
+              data = data.replace("<application", "<application\n        android:usesCleartextTraffic=\"true\"")
+
+          # dataplus:// scheme ရှာဖွေခွင့်ပြုချက် (Android 11+ Queries)
+          queries_block = """
+              <queries>
+                  <intent>
+                      <action android:name="android.intent.action.VIEW" />
+                      <data android:scheme="dataplus" />
+                  </intent>
+              </queries>
+          """
+          if "<queries>" not in data:
+              data = data.replace("</manifest>", f"{queries_block}\n</manifest>")
+
+          with open(manifest, "w", encoding="utf-8") as f:
+              f.write(data)
+          print("AndroidManifest.xml configured successfully!")
+          '
+
+          # 5. Icon ပါလာပါက Icon အစားထိုးခြင်း
+          if [ -f "../icon.png" ]; then
+            for dir in mipmap-hdpi mipmap-mdpi mipmap-xhdpi mipmap-xxhdpi mipmap-xxxhdpi; do
+              mkdir -p android/app/src/main/res/$dir
+              cp ../icon.png android/app/src/main/res/$dir/ic_launcher.png
+            done
+            echo "Custom Icon applied!"
+          fi
+
+      - name: Build Release APK
+        run: |
+          cd app
+          flutter build apk --release
+
+      - name: Sign APK with Release Key
+        run: |
+          RAW_APK=$(find app/build -name "*.apk" | head -n 1)
+          echo "Found APK at: $RAW_APK"
+
+          keytool -genkeypair -v -keystore release.jks -alias dataplus -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass "dataplus123" -keypass "dataplus123" \
+            -dname "CN=DATA PLUS Viewer, OU=DataPlus, O=DataPlus, L=Yangon, ST=Yangon, C=MM"
+
+          BUILD_TOOLS_DIR=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -n 1)
+          
+          zip -d "$RAW_APK" "META-INF/*.SF" "META-INF/*.RSA" "META-INF/*.DSA" "META-INF/MANIFEST.MF" || true
+          $BUILD_TOOLS_DIR/zipalign -f -p 4 "$RAW_APK" DataPlus_Viewer_aligned.apk
+          
+          $BUILD_TOOLS_DIR/apksigner sign --ks release.jks --ks-pass pass:dataplus123 --key-pass pass:dataplus123 \
+            --ks-key-alias dataplus \
+            --v1-signing-enabled true \
+            --v2-signing-enabled true \
+            --v3-signing-enabled true \
+            --out DataPlus_Viewer.apk DataPlus_Viewer_aligned.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: DataPlus-Viewer-APK
+          path: DataPlus_Viewer.apk

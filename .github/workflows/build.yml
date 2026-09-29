@@ -26,54 +26,72 @@ jobs:
 
       - name: Create & Configure Flutter App
         run: |
-          # 1. Flutter Project အသစ် စတင်တည်ဆောက်ခြင်း
+          # 1. Flutter Project အသစ် တည်ဆောက်ခြင်း
           flutter create --org com.dataplus --project-name dataplus_viewer app
           cd app
           
-          # 2. လိုအပ်သော Package များ ထည့်သွင်းခြင်း
+          # 2. လိုအပ်သော WebView နှင့် URL Launcher Packages များ ထည့်သွင်းခြင်း
           flutter pub add webview_flutter url_launcher
 
-          # 3. ရေးထားသော main.dart ကို အစားထိုးထည့်သွင်းခြင်း
+          # 3. main.dart ဖိုင်ကို အစားထိုးထည့်သွင်းခြင်း
           cp ../lib/main.dart lib/main.dart
 
-          # 4. Local HTTP (Cleartext) နှင့် dataplus:// scheme ခွင့်ပြုချက်များ ထည့်သွင်းခြင်း
-          python3 -c '
-          manifest = "android/app/src/main/AndroidManifest.xml"
-          with open(manifest, "r", encoding="utf-8") as f:
-              data = f.read()
+          # 4. စံချိန်မီ ပြီးပြည့်စုံသော AndroidManifest.xml ကို တိုက်ရိုက် ဖန်တီးခြင်း
+          cat << 'EOF' > android/app/src/main/AndroidManifest.xml
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <!-- Internet ခွင့်ပြုချက် -->
+              <uses-permission android:name="android.permission.INTERNET"/>
+              
+              <application
+                  android:label="DATA PLUS"
+                  android:name="${applicationName}"
+                  android:icon="@mipmap/ic_launcher"
+                  android:usesCleartextTraffic="true">
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:launchMode="singleTop"
+                      android:taskAffinity=""
+                      android:theme="@style/LaunchTheme"
+                      android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+                      android:hardwareAccelerated="true"
+                      android:windowSoftInputMode="adjustResize">
+                      <meta-data
+                          android:name="io.flutter.embedding.android.NormalTheme"
+                          android:resource="@style/NormalTheme" />
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN"/>
+                          <category android:name="android.intent.category.LAUNCHER"/>
+                      </intent-filter>
+                  </activity>
+                  <meta-data
+                      android:name="flutterEmbedding"
+                      android:value="2" />
+              </application>
 
-          # Internet ခွင့်ပြုချက်
-          if "android.permission.INTERNET" not in data:
-              data = data.replace("<manifest", "<manifest\n    <uses-permission android:name=\"android.permission.INTERNET\"/>")
-
-          # http://10.10.10.10:1000 (Cleartext) ခွင့်ပြုချက်
-          if "usesCleartextTraffic" not in data:
-              data = data.replace("<application", "<application\n        android:usesCleartextTraffic=\"true\"")
-
-          # dataplus:// scheme ရှာဖွေခွင့်ပြုချက် (Android 11+ Queries)
-          queries_block = """
+              <!-- dataplus:// scheme ရှာဖွေခွင့်ပြုချက် -->
               <queries>
                   <intent>
                       <action android:name="android.intent.action.VIEW" />
                       <data android:scheme="dataplus" />
                   </intent>
+                  <intent>
+                      <action android:name="android.intent.action.PROCESS_TEXT"/>
+                      <data android:mimeType="text/plain"/>
+                  </intent>
               </queries>
-          """
-          if "<queries>" not in data:
-              data = data.replace("</manifest>", f"{queries_block}\n</manifest>")
+          </manifest>
+          EOF
+          echo "Valid AndroidManifest.xml created successfully! ✅"
 
-          with open(manifest, "w", encoding="utf-8") as f:
-              f.write(data)
-          print("AndroidManifest.xml configured successfully!")
-          '
-
-          # 5. Icon ပါလာပါက Icon အစားထိုးခြင်း
-          if [ -f "../icon.png" ]; then
+          # 5. Icon အစားထိုးခြင်း
+          cd ..
+          if [ -f "icon.png" ]; then
             for dir in mipmap-hdpi mipmap-mdpi mipmap-xhdpi mipmap-xxhdpi mipmap-xxxhdpi; do
-              mkdir -p android/app/src/main/res/$dir
-              cp ../icon.png android/app/src/main/res/$dir/ic_launcher.png
+              mkdir -p app/android/app/src/main/res/$dir
+              cp icon.png app/android/app/src/main/res/$dir/ic_launcher.png
             done
-            echo "Custom Icon applied!"
+            echo "Custom Icon applied! ✅"
           fi
 
       - name: Build Release APK

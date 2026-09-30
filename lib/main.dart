@@ -1,4 +1,3 @@
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
@@ -46,6 +45,16 @@ class _WebViewScreenState extends State<WebViewScreen> {
   // ဆာဗာ၏ Local IP လိပ်စာ
   final String _initialUrl = 'http://10.10.10.10:1000';
 
+  // 🚀 ဖုန်းစနစ် (Chrome / Downloader App) ဆီ လွှဲပြောင်းပေးသည့် Function
+  Future<void> _launchExternal(String url) async {
+    try {
+      final uri = Uri.parse(url);
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (e) {
+      debugPrint('Launch external URL error: $e');
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -72,24 +81,26 @@ class _WebViewScreenState extends State<WebViewScreen> {
           },
           onNavigationRequest: (NavigationRequest request) async {
             final url = request.url;
+            final lowerUrl = url.toLowerCase();
 
-            // 🚀 dataplus:// scheme လာပါက DATA PLUS Downloader app ဆီ တိုက်ရိုက် လွှဲပြောင်းဖွင့်ပေးခြင်း
+            // 🚀 ၁။ dataplus:// scheme လာပါက DATA PLUS Downloader app ကို တိုက်ရိုက်ဖွင့်ပေးခြင်း
             if (url.startsWith('dataplus://')) {
-              try {
-                await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
-              } catch (e) {
-                debugPrint('Launch dataplus error: $e');
-              }
+              await _launchExternal(url);
               return NavigationDecision.prevent;
             }
 
-            // တခြား External Scheme များ (intent, tel, etc.) ကိုလည်း ဖုန်းစနစ်ဆီ လွှဲပေးခြင်း
+            // 📥 ၂။ app.py ရှိ /api/download/apk သို့မဟုတ် .apk ဒေါင်းလုဒ်လင့်ခ်များကို
+            // ဖုန်း၏ မူရင်း Browser (Chrome) Downloader ဆီ တိုက်ရိုက် လွှဲပေးခြင်း
+            if (lowerUrl.contains('/api/download/apk') ||
+                lowerUrl.contains('.apk') ||
+                lowerUrl.contains('.zip')) {
+              await _launchExternal(url);
+              return NavigationDecision.prevent; // WebView ထဲ မဝင်စေဘဲ Browser ဆီ လွှဲမည်
+            }
+
+            // ၃။ အခြား External Scheme များ (intent, tel, etc.)
             if (!url.startsWith('http://') && !url.startsWith('https://')) {
-              try {
-                await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
-              } catch (e) {
-                debugPrint('Launch external error: $e');
-              }
+              await _launchExternal(url);
               return NavigationDecision.prevent;
             }
 
@@ -107,7 +118,7 @@ class _WebViewScreenState extends State<WebViewScreen> {
       canPop: false,
       onPopInvokedWithResult: (didPop, result) async {
         if (didPop) return;
-        // ဖုန်း၏ Back ခလုတ်နှိပ်ပါက စာမျက်နှာအဟောင်းသို့ ပြန်ဆုတ်ခြင်း (App တန်းထွက်မသွားစေရန်)
+        // ဖုန်း၏ Back ခလုတ်နှိပ်ပါက စာမျက်နှာအဟောင်းသို့ ပြန်ဆုတ်ခြင်း
         if (await _controller.canGoBack()) {
           await _controller.goBack();
         } else {
